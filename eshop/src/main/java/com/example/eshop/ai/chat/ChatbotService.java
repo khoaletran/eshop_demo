@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -27,7 +28,6 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ChatbotService {
 
     private final VectorStoreService vectorStoreService;
@@ -46,8 +46,21 @@ public class ChatbotService {
     @Value("${app.ai.gemini.max-output-tokens:1024}")
     private int maxTokens;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public ChatbotService(VectorStoreService vectorStoreService,
+                          EmbeddingService embeddingService,
+                          UserTrackingService trackingService) {
+        this.vectorStoreService = vectorStoreService;
+        this.embeddingService = embeddingService;
+        this.trackingService = trackingService;
+
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(4000);
+        factory.setReadTimeout(8000);
+        this.restTemplate = new RestTemplate(factory);
+    }
 
     public ChatDto.ChatResponse chat(String userMessage, String sessionId) {
         if (userMessage == null || userMessage.isBlank()) {
@@ -101,9 +114,6 @@ public class ChatbotService {
      * Gọi Google Gemini Generate Content API với Context RAG
      */
     private String callGeminiGenerateApi(String userMessage, List<ScoredProduct> products) {
-        String url = String.format("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
-                geminiModel, geminiApiKey);
-
         StringBuilder contextBuilder = new StringBuilder();
         contextBuilder.append("THÔNG TIN SẢN PHẨM CÓ TRONG KHO CỬA HÀNG:\n");
         NumberFormat nf = NumberFormat.getInstance(new Locale("vi", "VN"));
@@ -142,16 +152,27 @@ public class ChatbotService {
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
 
-        ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
-        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+        // Danh sách model ưu tiên từ mới đến cũ
+        List<String> candidateModels = new ArrayList<>();
+        if (geminiModel != null && !geminiModel.isBlank()) {
+            candidateModels.add(geminiModel);
+        }
+        candidateModels.addAll(List.of("gemini-1.5-flash", "gemini-2.5-flash", "gemini-flash-latest", "gemini-1.5-pro"));
+
+        for (String modelName : candidateModels) {
             try {
-                JsonNode root = objectMapper.readTree(response.getBody());
-                JsonNode textNode = root.path("candidates").get(0).path("content").path("parts").get(0).path("text");
-                if (!textNode.isMissingNode()) {
-                    return textNode.asText();
+                String url = String.format("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
+                        modelName, geminiApiKey);
+                ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    JsonNode root = objectMapper.readTree(response.getBody());
+                    JsonNode textNode = root.path("candidates").get(0).path("content").path("parts").get(0).path("text");
+                    if (!textNode.isMissingNode() && !textNode.asText().isBlank()) {
+                        return textNode.asText();
+                    }
                 }
             } catch (Exception e) {
-                log.error("Lỗi parse phản hồi Gemini: {}", e.getMessage());
+                log.debug("Thử model generate {} thất bại: {}", modelName, e.getMessage());
             }
         }
         return generateSmartFallbackReply(userMessage, products);

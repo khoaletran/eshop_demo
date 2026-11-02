@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -32,7 +33,14 @@ public class EmbeddingService {
     private int vectorDimension;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    public EmbeddingService() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(3000);
+        factory.setReadTimeout(5000);
+        this.restTemplate = new RestTemplate(factory);
+    }
 
     /**
      * Tạo vector embedding từ một đoạn văn bản
@@ -66,33 +74,46 @@ public class EmbeddingService {
     }
 
     /**
-     * Gọi Google Gemini Embedding API (text-embedding-004)
+     * Gọi Google Gemini Embedding API với danh sách model dự phòng
      */
     private float[] callGeminiEmbeddingApi(String text) {
-        String url = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=" + geminiApiKey;
+        String[] candidateModels = new String[]{
+                "gemini-embedding-001",
+                "gemini-embedding-2",
+                "text-embedding-004",
+                "embedding-001"
+        };
 
-        Map<String, Object> part = Map.of("text", text);
-        Map<String, Object> content = Map.of("parts", List.of(part));
-        Map<String, Object> requestBody = Map.of("model", "models/text-embedding-004", "content", content);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-
-        ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
-        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+        for (String modelName : candidateModels) {
             try {
-                JsonNode root = objectMapper.readTree(response.getBody());
-                JsonNode valuesNode = root.path("embedding").path("values");
-                if (valuesNode.isArray()) {
-                    float[] vec = new float[valuesNode.size()];
-                    for (int i = 0; i < valuesNode.size(); i++) {
-                        vec[i] = (float) valuesNode.get(i).asDouble();
+                String url = String.format("https://generativelanguage.googleapis.com/v1beta/models/%s:embedContent?key=%s",
+                        modelName, geminiApiKey);
+
+                Map<String, Object> part = Map.of("text", text);
+                Map<String, Object> content = Map.of("parts", List.of(part));
+                Map<String, Object> requestBody = Map.of(
+                        "content", content,
+                        "outputDimensionality", vectorDimension
+                );
+
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+                ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    JsonNode root = objectMapper.readTree(response.getBody());
+                    JsonNode valuesNode = root.path("embedding").path("values");
+                    if (valuesNode.isArray() && valuesNode.size() > 0) {
+                        float[] vec = new float[valuesNode.size()];
+                        for (int i = 0; i < valuesNode.size(); i++) {
+                            vec[i] = (float) valuesNode.get(i).asDouble();
+                        }
+                        return VectorMath.normalize(vec);
                     }
-                    return VectorMath.normalize(vec);
                 }
             } catch (Exception e) {
-                log.error("Lỗi parse phản hồi embedding: {}", e.getMessage());
+                log.debug("Thử model embedding {} thất bại: {}", modelName, e.getMessage());
             }
         }
         return null;
