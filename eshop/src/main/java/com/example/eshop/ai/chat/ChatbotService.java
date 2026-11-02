@@ -3,11 +3,9 @@ package com.example.eshop.ai.chat;
 import com.example.eshop.ai.model.ChatDto;
 import com.example.eshop.ai.model.ScoredProduct;
 import com.example.eshop.ai.tracking.UserTrackingService;
-import com.example.eshop.ai.vector.EmbeddingService;
 import com.example.eshop.ai.vector.VectorStoreService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -20,18 +18,16 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Dịch vụ Chatbot hỏi đáp thông minh kết hợp RAG (Retrieval-Augmented Generation):
- * 1. Nhận câu hỏi từ khách hàng.
- * 2. Truy vấn Vector Database để trích xuất sản phẩm liên quan (Context Retrieval).
- * 3. Tạo Prompt tăng cường chứa thông tin sản phẩm thực tế trong kho hàng.
- * 4. Gọi LLM (Google Gemini API / Smart Advisor Fallback) để sinh câu trả lời tự nhiên, thân thiện.
+ * Chatbot RAG (Retrieval-Augmented Generation):
+ * 1. Retrieval: Tìm sản phẩm phù hợp nhất trong kho hàng qua Vector Database.
+ * 2. Augmentation: Đưa danh sách sản phẩm tìm được vào Prompt ngữ cảnh.
+ * 3. Generation: Gọi Gemini LLM tạo câu trả lời tư vấn cho khách hàng.
  */
 @Slf4j
 @Service
 public class ChatbotService {
 
     private final VectorStoreService vectorStoreService;
-    private final EmbeddingService embeddingService;
     private final UserTrackingService trackingService;
 
     @Value("${app.ai.gemini.api-key:demo_key}")
@@ -50,10 +46,8 @@ public class ChatbotService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ChatbotService(VectorStoreService vectorStoreService,
-                          EmbeddingService embeddingService,
                           UserTrackingService trackingService) {
         this.vectorStoreService = vectorStoreService;
-        this.embeddingService = embeddingService;
         this.trackingService = trackingService;
 
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
@@ -64,20 +58,22 @@ public class ChatbotService {
 
     public ChatDto.ChatResponse chat(String userMessage, String sessionId) {
         if (userMessage == null || userMessage.isBlank()) {
-            return new ChatDto.ChatResponse("Dạ, em có thể hỗ trợ gì cho anh/chị về các sản phẩm công nghệ tại eShop ạ?",
+            return new ChatDto.ChatResponse(
+                    "Dạ, em có thể hỗ trợ gì cho anh/chị về các sản phẩm công nghệ tại eShop ạ?",
                     Collections.emptyList(),
-                    List.of("Tư vấn điện thoại chụp ảnh đẹp", "Tai nghe bluetooth dưới 2 triệu", "Laptop học tập văn phòng"));
+                    List.of("Tư vấn điện thoại tầm 20 triệu", "Tai nghe bluetooth chống ồn", "Laptop văn phòng")
+            );
         }
 
-        // 1. Ghi nhận hành vi tìm kiếm qua chat vào User Tracking
+        // 1. Ghi nhận tìm kiếm vào User Tracking
         if (sessionId != null && !sessionId.isBlank()) {
             trackingService.trackSearch(sessionId, userMessage, null);
         }
 
-        // 2. RETRIEVAL: Tìm kiếm ngữ nghĩa trong Vector Database
-        List<ScoredProduct> matchedProducts = vectorStoreService.searchByText(userMessage, 4, 0.18);
+        // 2. RETRIEVAL: Tìm sản phẩm phù hợp trong Vector Database
+        List<ScoredProduct> matchedProducts = vectorStoreService.searchByText(userMessage, 4, 0.05);
 
-        // 3. Chuẩn bị danh sách ProductSummary trả về cho giao diện hiển thị card
+        // Chuẩn bị danh sách Card sản phẩm trả về giao diện
         NumberFormat nf = NumberFormat.getInstance(new Locale("vi", "VN"));
         List<ChatDto.ProductSummary> productSummaries = matchedProducts.stream().map(sp -> {
             String priceStr = sp.getPrice() != null ? nf.format(sp.getPrice()) + " ₫" : "Liên hệ";
@@ -91,21 +87,28 @@ public class ChatbotService {
             );
         }).collect(Collectors.toList());
 
-        // 4. GENERATION: Gọi LLM (Gemini hoặc Smart Advisor)
-        String replyText;
-        if (embeddingService.isRealApiKey(geminiApiKey)) {
-            try {
-                replyText = callGeminiGenerateApi(userMessage, matchedProducts);
-            } catch (Exception e) {
-                log.warn("Gọi Gemini LLM thất bại ({}), chuyển sang Smart Advisor.", e.getMessage());
-                replyText = generateSmartFallbackReply(userMessage, matchedProducts);
-            }
-        } else {
-            replyText = generateSmartFallbackReply(userMessage, matchedProducts);
+        // 3. AUGMENTATION & GENERATION: Gọi Gemini LLM với Context từ kho hàng
+        String replyText = null;
+        if (geminiApiKey != null && !geminiApiKey.isBlank() && !geminiApiKey.equals("demo_key") && geminiApiKey.startsWith("AIzaSy")) {
+            replyText = callGeminiGenerateApi(userMessage, matchedProducts);
         }
 
-        // 5. Gợi ý các câu hỏi tiếp theo (Quick Follow-up Suggestions)
-        List<String> followUps = generateFollowUps(userMessage, matchedProducts);
+        if (replyText == null || replyText.isBlank()) {
+            // Câu trả lời mẫu đơn giản dựa trên RAG context
+            StringBuilder sb = new StringBuilder("Dạ, eShop xin gợi ý các sản phẩm phù hợp nhất trong kho hàng cho anh/chị:\n");
+            for (ScoredProduct sp : matchedProducts) {
+                sb.append(String.format("- %s (Giá: %s VNĐ)\n", sp.getName(),
+                        sp.getPrice() != null ? nf.format(sp.getPrice()) : "Liên hệ"));
+            }
+            sb.append("\nAnh/chị có thể xem chi tiết ở các thẻ sản phẩm bên dưới ạ!");
+            replyText = sb.toString();
+        }
+
+        List<String> followUps = List.of(
+                "Có được bảo hành chính hãng không?",
+                "Chính sách giao hàng như thế nào?",
+                "Có sản phẩm nào giá tốt hơn không?"
+        );
 
         return new ChatDto.ChatResponse(replyText, productSummaries, followUps);
     }
@@ -115,7 +118,7 @@ public class ChatbotService {
      */
     private String callGeminiGenerateApi(String userMessage, List<ScoredProduct> products) {
         StringBuilder contextBuilder = new StringBuilder();
-        contextBuilder.append("THÔNG TIN SẢN PHẨM CÓ TRONG KHO CỬA HÀNG:\n");
+        contextBuilder.append("THÔNG TIN SẢN PHẨM CÓ TRONG KHO HÀNG:\n");
         NumberFormat nf = NumberFormat.getInstance(new Locale("vi", "VN"));
         for (int i = 0; i < products.size(); i++) {
             ScoredProduct p = products.get(i);
@@ -127,21 +130,19 @@ public class ChatbotService {
                     p.getDescription()));
         }
 
-        String systemInstruction = """
-                Bạn là 'eShop AI Assistant' - Chuyên viên tư vấn bán hàng công nghệ chuyên nghiệp, nhiệt tình, lịch sự.
-                Nhiệm vụ: Tư vấn cho khách hàng dựa trên dữ liệu sản phẩm trong kho được cung cấp ở trên.
-                Quy tắc:
-                - Tư vấn rõ ưu điểm nổi bật và mức giá phù hợp nhu cầu của khách.
-                - Nếu khách hỏi sản phẩm không có trong kho, hãy giải thích khéo léo và gợi ý các sản phẩm tương tự đang có.
-                - Giữ câu trả lời súc tích, tự nhiên, định dạng danh sách gạch đầu dòng rõ ràng.
-                """;
+        String prompt = String.format("""
+                Bạn là 'eShop Assistant' - Nhân viên tư vấn bán hàng công nghệ chuyên nghiệp, nhiệt tình và súc tích.
+                Dựa vào thông tin các sản phẩm trong kho dưới đây:
+                %s
+                
+                Hãy trả lời câu hỏi của khách hàng: "%s"
+                Yêu cầu:
+                - Tư vấn rõ ưu điểm và mức giá phù hợp.
+                - Trả lời ngắn gọn, định dạng gạch đầu dòng rõ ràng.
+                """, contextBuilder, userMessage);
 
-        String prompt = systemInstruction + "\n\n" + contextBuilder + "\nCÂU HỎI CỦA KHÁCH HÀNG: " + userMessage;
-
-        Map<String, Object> textPart = Map.of("text", prompt);
-        Map<String, Object> content = Map.of("parts", List.of(textPart));
         Map<String, Object> body = Map.of(
-                "contents", List.of(content),
+                "contents", List.of(Map.of("parts", List.of(Map.of("text", prompt)))),
                 "generationConfig", Map.of(
                         "temperature", temperature,
                         "maxOutputTokens", maxTokens
@@ -152,12 +153,7 @@ public class ChatbotService {
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
 
-        // Danh sách model ưu tiên từ mới đến cũ
-        List<String> candidateModels = new ArrayList<>();
-        if (geminiModel != null && !geminiModel.isBlank()) {
-            candidateModels.add(geminiModel);
-        }
-        candidateModels.addAll(List.of("gemini-1.5-flash", "gemini-2.5-flash", "gemini-flash-latest", "gemini-1.5-pro"));
+        List<String> candidateModels = List.of(geminiModel, "gemini-1.5-flash", "gemini-2.5-flash", "gemini-flash-latest");
 
         for (String modelName : candidateModels) {
             try {
@@ -175,49 +171,7 @@ public class ChatbotService {
                 log.debug("Thử model generate {} thất bại: {}", modelName, e.getMessage());
             }
         }
-        return generateSmartFallbackReply(userMessage, products);
-    }
 
-    /**
-     * Smart Generative Advisor Fallback (Hoạt động offline hoặc khi chưa có API key):
-     * Phân tích câu hỏi, so khớp thông số từ kho hàng và tạo câu trả lời mạch lạc, chuẩn nghiệp vụ.
-     */
-    private String generateSmartFallbackReply(String userMessage, List<ScoredProduct> products) {
-        if (products.isEmpty()) {
-            return "Dạ eShop hiện chưa tìm thấy sản phẩm hoàn toàn khớp với yêu cầu \"" + userMessage +
-                   "\" của anh/chị. Anh/chị có thể tham khảo thêm các danh mục Điện thoại, Laptop, Tai nghe hoặc Màn hình ở thanh menu giúp em nhé!";
-        }
-
-        NumberFormat nf = NumberFormat.getInstance(new Locale("vi", "VN"));
-        StringBuilder sb = new StringBuilder();
-        sb.append("Dạ chào anh/chị! Dựa trên nhu cầu của anh/chị, eShop xin gợi ý các sản phẩm phù hợp nhất trong kho hàng:\n\n");
-
-        for (int i = 0; i < products.size(); i++) {
-            ScoredProduct sp = products.get(i);
-            String priceStr = sp.getPrice() != null ? nf.format(sp.getPrice()) + " ₫" : "Liên hệ";
-            sb.append(String.format("🔹 **%s** — Giá: **%s**\n", sp.getName(), priceStr));
-            sb.append(String.format("   - Danh mục: *%s* | Tồn kho: %d sản phẩm\n", sp.getCategoryName(), sp.getProduct().getQuantity()));
-            if (sp.getDescription() != null && !sp.getDescription().isBlank()) {
-                sb.append(String.format("   - Điểm nổi bật: %s\n", sp.getDescription()));
-            }
-            sb.append("\n");
-        }
-
-        sb.append("💡 Anh/chị có thể bấm trực tiếp vào thẻ sản phẩm bên dưới để xem chi tiết hoặc thêm ngay vào giỏ hàng ạ!");
-        return sb.toString();
-    }
-
-    private List<String> generateFollowUps(String userMessage, List<ScoredProduct> products) {
-        List<String> list = new ArrayList<>();
-        if (!products.isEmpty()) {
-            list.add("So sánh chi tiết các sản phẩm trên");
-            list.add("Sản phẩm nào có pin trâu nhất?");
-            list.add("Chính sách bảo hành và giao hàng thế nào?");
-        } else {
-            list.add("Xem danh sách điện thoại bán chạy");
-            list.add("Tư vấn laptop sinh viên văn phòng");
-            list.add("Phụ kiện sạc nhanh chính hãng");
-        }
-        return list;
+        return null;
     }
 }
