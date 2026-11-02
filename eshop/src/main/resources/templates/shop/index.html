@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Cửa hàng')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+<main class="container">
+    <div th:replace="~{fragments/layout :: alerts}"></div>
+
+    <div class="row">
+        <!-- Cột danh mục -->
+        <aside class="col-md-3 mb-3">
+            <div class="list-group shadow-sm">
+                <a class="list-group-item list-group-item-action fw-bold"
+                   th:classappend="${categoryId == null} ? 'active'"
+                   th:href="@{/products(keyword=${keyword})}">Tất cả sản phẩm</a>
+                <a th:each="c : ${categories}" class="list-group-item list-group-item-action"
+                   th:classappend="${c.id == categoryId} ? 'active'"
+                   th:href="@{/products(categoryId=${c.id}, keyword=${keyword})}"
+                   th:text="${c.name}"></a>
+            </div>
+
+            <!-- Banner AI Chatbot -->
+            <div class="card mt-4 border-0 shadow-sm text-white" style="background: linear-gradient(135deg, #0d6efd, #6610f2);">
+                <div class="card-body p-3">
+                    <h6 class="card-title fw-bold">🤖 Chatbot Tư vấn AI</h6>
+                    <p class="card-text small text-white-50">Bạn chưa biết chọn sản phẩm nào phù hợp? Trò chuyện ngay với AI!</p>
+                    <a th:href="@{/chat}" class="btn btn-sm btn-light text-primary fw-bold w-100">Khám phá ngay</a>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Cột hiển thị chính -->
+        <section class="col-md-9">
+
+            <!-- ======================================================== -->
+            <!-- KHỐI AI RECOMMENDATIONS: GỢI Ý DỰA TRÊN USER TRACKING -->
+            <!-- ======================================================== -->
+            <div th:if="${aiRecommendations != null and !aiRecommendations.empty}" class="ai-recommendation-box mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <span class="ai-badge mb-1">✨ AI Personalization</span>
+                        <h5 class="fw-bold mb-0 text-primary">Gợi ý thông minh dành riêng cho bạn</h5>
+                        <small class="text-muted">Được tính toán dựa trên lịch sử xem, tìm kiếm và phân rã thời gian (Recency Decay)</small>
+                    </div>
+                </div>
+
+                <div class="row row-cols-2 row-cols-lg-4 g-3">
+                    <div class="col" th:each="rec : ${aiRecommendations}">
+                        <div class="card h-100 border-0 shadow-sm bg-white">
+                            <a th:href="@{/products/{id}(id=${rec.id})}">
+                                <img class="card-img-top product-img" th:src="${rec.imageUrl}" th:alt="${rec.name}">
+                            </a>
+                            <div class="card-body p-2 d-flex flex-column">
+                                <small class="text-muted" th:text="${rec.categoryName}"></small>
+                                <h6 class="card-title fs-6 mb-1 text-truncate" th:text="${rec.name}"></h6>
+                                <div class="price small mb-1"
+                                     th:text="${#numbers.formatDecimal(rec.price, 0, 'POINT', 0, 'COMMA')} + ' ₫'"></div>
+                                <div class="similarity-score small mb-2">
+                                    <span class="badge bg-success-subtle text-success">Độ khớp: <span th:text="${#numbers.formatDecimal(rec.similarityScore * 100, 0, 0)}"></span>%</span>
+                                </div>
+                                <div class="mt-auto">
+                                    <form th:action="@{/cart/add}" method="post" class="d-inline">
+                                        <input type="hidden" name="productId" th:value="${rec.id}">
+                                        <button class="btn btn-xs btn-primary w-100 mb-1">🛒 Thêm vào giỏ</button>
+                                    </form>
+                                    <a class="btn btn-xs btn-outline-secondary w-100" th:href="@{/products/{id}(id=${rec.id})}">Chi tiết</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lưới tất cả sản phẩm thông thường -->
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <p class="text-muted mb-0">
+                    Tìm thấy <b th:text="${products.totalElements}">0</b> sản phẩm
+                    <span th:if="${keyword}"> cho từ khoá "<b th:text="${keyword}"></b>"</span>
+                </p>
+            </div>
+
+            <div class="row row-cols-2 row-cols-lg-3 g-3">
+                <div class="col" th:each="p : ${products.content}">
+                    <div class="card h-100 shadow-sm">
+                        <a th:href="@{/products/{id}(id=${p.id})}">
+                            <img class="card-img-top product-img" th:src="${p.imageUrl}" th:alt="${p.name}">
+                        </a>
+                        <div class="card-body d-flex flex-column">
+                            <small class="text-muted" th:text="${p.category.name}"></small>
+                            <h6 class="card-title" th:text="${p.name}"></h6>
+                            <div class="price mb-2"
+                                 th:text="${#numbers.formatDecimal(p.price, 0, 'POINT', 0, 'COMMA')} + ' ₫'"></div>
+                            <div class="mt-auto">
+                                <form th:action="@{/cart/add}" method="post" class="d-inline">
+                                    <input type="hidden" name="productId" th:value="${p.id}">
+                                    <button class="btn btn-sm btn-primary" th:disabled="${p.quantity == 0}">🛒 Thêm vào giỏ</button>
+                                </form>
+                                <a class="btn btn-sm btn-outline-primary" th:href="@{/products/{id}(id=${p.id})}">Chi tiết</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Phân trang -->
+            <nav class="mt-4" th:if="${products.totalPages > 1}">
+                <ul class="pagination justify-content-center">
+                    <li class="page-item" th:each="i : ${#numbers.sequence(0, products.totalPages - 1)}"
+                        th:classappend="${i == products.number} ? 'active'">
+                        <a class="page-link" th:href="@{/products(keyword=${keyword}, categoryId=${categoryId}, page=${i})}"
+                           th:text="${i + 1}"></a>
+                    </li>
+                </ul>
+            </nav>
+        </section>
+    </div>
+</main>
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+</body>
+</html>

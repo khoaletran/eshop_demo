@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(${product.name})}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+<main class="container">
+    <div th:replace="~{fragments/layout :: alerts}"></div>
+
+    <div class="row g-4 mb-5">
+        <div class="col-md-5">
+            <img class="img-fluid rounded border shadow-sm w-100" th:src="${product.imageUrl}" th:alt="${product.name}">
+        </div>
+        <div class="col-md-7">
+            <span class="badge bg-secondary mb-2" th:text="${product.category.name}"></span>
+            <h2 class="fw-bold" th:text="${product.name}"></h2>
+            <h3 class="price my-3"
+                th:text="${#numbers.formatDecimal(product.price, 0, 'POINT', 0, 'COMMA')} + ' ₫'"></h3>
+            <p class="text-secondary lead fs-6" th:text="${product.description}"></p>
+            <p class="mb-4">Tình trạng kho:
+                <b th:if="${product.quantity > 0}" class="text-success">Còn lại <span th:text="${product.quantity}"></span> sản phẩm</b>
+                <b th:if="${product.quantity == 0}" class="text-danger">Tạm hết hàng</b>
+            </p>
+
+            <form th:action="@{/cart/add}" method="post" class="d-flex gap-2 mb-3" style="max-width:320px">
+                <input type="hidden" name="productId" th:value="${product.id}">
+                <input type="number" name="quantity" value="1" min="1" th:max="${product.quantity}"
+                       class="form-control" style="width: 90px;">
+                <button class="btn btn-primary text-nowrap px-4" th:disabled="${product.quantity == 0}">
+                    🛒 Thêm vào giỏ
+                </button>
+            </form>
+
+            <a class="btn btn-link px-0 text-decoration-none" th:href="@{/products}">← Tiếp tục xem danh mục sản phẩm</a>
+        </div>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- KHỐI SẢN PHẨM TƯƠNG TỰ TỪ VECTOR DATABASE (SIMILARITY SEARCH) -->
+    <!-- ======================================================== -->
+    <div th:if="${similarProducts != null and !similarProducts.empty}" class="ai-recommendation-box mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <span class="ai-badge mb-1">🔍 Vector Similarity Search</span>
+                <h4 class="fw-bold mb-0 text-primary">Sản phẩm tương tự được AI đề xuất</h4>
+                <small class="text-muted">Được tính toán bằng độ tương đồng Cosine trong không gian Vector đa chiều</small>
+            </div>
+        </div>
+
+        <div class="row row-cols-2 row-cols-lg-4 g-3">
+            <div class="col" th:each="sp : ${similarProducts}">
+                <div class="card h-100 border-0 shadow-sm bg-white">
+                    <a th:href="@{/products/{id}(id=${sp.id})}">
+                        <img class="card-img-top product-img" th:src="${sp.imageUrl}" th:alt="${sp.name}">
+                    </a>
+                    <div class="card-body p-2 d-flex flex-column">
+                        <small class="text-muted" th:text="${sp.categoryName}"></small>
+                        <h6 class="card-title fs-6 mb-1 text-truncate" th:text="${sp.name}"></h6>
+                        <div class="price small mb-1"
+                             th:text="${#numbers.formatDecimal(sp.price, 0, 'POINT', 0, 'COMMA')} + ' ₫'"></div>
+                        <div class="similarity-score small mb-2">
+                            <span class="badge bg-info-subtle text-info-emphasis">Tương đồng: <span th:text="${#numbers.formatDecimal(sp.similarityScore * 100, 0, 0)}"></span>%</span>
+                        </div>
+                        <div class="mt-auto">
+                            <form th:action="@{/cart/add}" method="post" class="d-inline">
+                                <input type="hidden" name="productId" th:value="${sp.id}">
+                                <button class="btn btn-xs btn-primary w-100 mb-1">🛒 Thêm vào giỏ</button>
+                            </form>
+                            <a class="btn btn-xs btn-outline-secondary w-100" th:href="@{/products/{id}(id=${sp.id})}">Xem ngay</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script th:inline="javascript">
+    window.eshopTrackingEventId = /*[[${trackingEventId}]]*/ null;
+</script>
+
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+</body>
+</html>

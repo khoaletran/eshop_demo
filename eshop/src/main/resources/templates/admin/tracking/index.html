@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Nhật ký Tracking & AI')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+<main class="container">
+    <div th:replace="~{fragments/layout :: alerts}"></div>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3 class="fw-bold mb-0">📊 Nhật ký User Tracking & Vector Database</h3>
+            <p class="text-muted mb-0">Giám sát hành vi người dùng, chu kỳ phân rã thời gian (Recency Decay) và Vector Embeddings</p>
+        </div>
+        <form th:action="@{/admin/ai/reindex}" method="post">
+            <button class="btn btn-outline-primary">
+                ⚡ Tái lập chỉ mục Vector DB
+            </button>
+        </form>
+    </div>
+
+    <!-- Thống kê tổng quan -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-2 col-6">
+            <div class="card border-0 shadow-sm text-center p-3 bg-primary text-white">
+                <small class="text-white-50">Tổng sự kiện</small>
+                <h3 class="fw-bold mb-0" th:text="${stats['total']}">0</h3>
+            </div>
+        </div>
+        <div class="col-md-2 col-6">
+            <div class="card border-0 shadow-sm text-center p-3 bg-info text-white">
+                <small class="text-white-50">Lượt Xem (VIEW)</small>
+                <h3 class="fw-bold mb-0" th:text="${stats['VIEW']}">0</h3>
+            </div>
+        </div>
+        <div class="col-md-2 col-6">
+            <div class="card border-0 shadow-sm text-center p-3 bg-secondary text-white">
+                <small class="text-white-50">Tìm kiếm (SEARCH)</small>
+                <h3 class="fw-bold mb-0" th:text="${stats['SEARCH']}">0</h3>
+            </div>
+        </div>
+        <div class="col-md-3 col-6">
+            <div class="card border-0 shadow-sm text-center p-3 bg-warning text-dark">
+                <small class="text-muted">Vào giỏ (ADD_TO_CART)</small>
+                <h3 class="fw-bold mb-0" th:text="${stats['ADD_TO_CART']}">0</h3>
+            </div>
+        </div>
+        <div class="col-md-3 col-6">
+            <div class="card border-0 shadow-sm text-center p-3 bg-success text-white">
+                <small class="text-white-50">Mua hàng (PURCHASE)</small>
+                <h3 class="fw-bold mb-0" th:text="${stats['PURCHASE']}">0</h3>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bảng giải thích chi tiết mục đích từng trường dữ liệu -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white fw-bold">
+            💡 Ý nghĩa & Mục đích kỹ thuật của các trường dữ liệu trong User Tracking
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-bordered mb-0 small">
+                    <thead class="table-light">
+                    <tr>
+                        <th style="width: 150px;">Trường dữ liệu</th>
+                        <th style="width: 120px;">Kiểu dữ liệu</th>
+                        <th>Mục đích sử dụng trong AI & Hệ thống</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                        <td><code>session_id</code></td>
+                        <td>VARCHAR(100)</td>
+                        <td>Nhận diện phiên duyệt web của người dùng (kể cả Guest/khách vãng lai). Cho phép cá nhân hóa hành vi mà không bắt buộc người dùng đăng nhập.</td>
+                    </tr>
+                    <tr>
+                        <td><code>event_type</code></td>
+                        <td>VARCHAR(30)</td>
+                        <td>Loại hành vi (<code>VIEW</code>, <code>SEARCH</code>, <code>ADD_TO_CART</code>, <code>PURCHASE</code>). Đại diện cho mức độ quan tâm (Intent Level) để nhân trọng số tương ứng (1.0 -> 5.0).</td>
+                    </tr>
+                    <tr>
+                        <td><code>product_id</code></td>
+                        <td>BIGINT</td>
+                        <td>ID sản phẩm tương tác, dùng để truy xuất Vector Embedding của sản phẩm trong Vector Database phục vụ cộng dồn vào User Interest Profile Vector.</td>
+                    </tr>
+                    <tr>
+                        <td><code>duration_seconds</code></td>
+                        <td>INT</td>
+                        <td>Thời gian dừng lại xem trang (Dwell Time). Thể hiện mức độ quan tâm sâu (Implicit Feedback) của khách hàng đối với sản phẩm đó.</td>
+                    </tr>
+                    <tr>
+                        <td><code>created_at</code></td>
+                        <td>DATETIME</td>
+                        <td><strong>Cực kỳ quan trọng:</strong> Dùng để tính toán <strong>Recency Decay (Phân rã theo thời gian)</strong>: Hành vi vừa xảy ra 5 phút trước phản ánh nhu cầu hiện tại cao hơn nhiều so với hành vi 2 tuần trước theo hàm mũ; đồng thời gom nhóm Session Windowing.</td>
+                    </tr>
+                    <tr>
+                        <td><code>updated_at</code></td>
+                        <td>DATETIME</td>
+                        <td>Thời điểm cập nhật bản ghi khi client gửi bổ sung Dwell Time lúc người dùng chuyển trang, hoặc đánh dấu cờ dữ liệu đã được tiến trình AI xử lý.</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bảng danh sách sự kiện gần nhất -->
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
+            <span>Danh sách sự kiện gần nhất (Thời gian thực)</span>
+            <span class="badge bg-primary" th:text="${recentEvents.size()} + ' sự kiện'"></span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped align-middle mb-0 small">
+                    <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Session ID</th>
+                        <th>Hành vi</th>
+                        <th>Product ID</th>
+                        <th>Category ID</th>
+                        <th>Từ khóa</th>
+                        <th>Dwell Time</th>
+                        <th>Created At</th>
+                        <th>Updated At</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="ev : ${recentEvents}">
+                        <td th:text="${ev.id}"></td>
+                        <td><code class="text-muted" th:text="${#strings.length(ev.sessionId) > 12 ? #strings.substring(ev.sessionId, 0, 12) + '...' : ev.sessionId}"></code></td>
+                        <td>
+                            <span th:if="${ev.eventType.name() == 'VIEW'}" class="badge bg-info">VIEW</span>
+                            <span th:if="${ev.eventType.name() == 'SEARCH'}" class="badge bg-secondary">SEARCH</span>
+                            <span th:if="${ev.eventType.name() == 'ADD_TO_CART'}" class="badge bg-warning text-dark">ADD_TO_CART</span>
+                            <span th:if="${ev.eventType.name() == 'PURCHASE'}" class="badge bg-success">PURCHASE</span>
+                        </td>
+                        <td th:text="${ev.productId != null ? ev.productId : '-'}"></td>
+                        <td th:text="${ev.categoryId != null ? ev.categoryId : '-'}"></td>
+                        <td th:text="${ev.keyword != null ? ev.keyword : '-'}"></td>
+                        <td th:text="${ev.durationSeconds != null ? ev.durationSeconds + 's' : '0s'}"></td>
+                        <td th:text="${#temporals.format(ev.createdAt, 'yyyy-MM-dd HH:mm:ss')}"></td>
+                        <td th:text="${#temporals.format(ev.updatedAt, 'yyyy-MM-dd HH:mm:ss')}"></td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(recentEvents)}">
+                        <td colspan="9" class="text-center py-4 text-muted">Chưa có sự kiện nào. Hãy duyệt xem các sản phẩm trên web để tạo dữ liệu tracking!</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</main>
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+</body>
+</html>

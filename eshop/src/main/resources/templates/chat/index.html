@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Trợ lý AI Mua sắm')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+<main class="container py-3" style="max-width: 900px;">
+    <div class="card shadow border-0 overflow-hidden" style="border-radius: 16px; height: 75vh; display: flex; flex-direction: column;">
+        <!-- Header -->
+        <div class="p-3 text-white d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #0d6efd, #6610f2);">
+            <div class="d-flex align-items-center">
+                <span class="fs-2 me-3">🤖</span>
+                <div>
+                    <h5 class="fw-bold mb-0">eShop AI Assistant (RAG Chatbot)</h5>
+                    <small class="text-white-50">Tư vấn chọn sản phẩm, cấu hình, mức giá với Vector Database & LLM</small>
+                </div>
+            </div>
+            <div>
+                <span class="badge bg-success">Online</span>
+            </div>
+        </div>
+
+        <!-- Chat messages area -->
+        <div id="aiChatMessages" class="p-4 flex-grow-1 overflow-auto bg-light d-flex flex-column gap-3">
+            <div class="ai-message bot">
+                <div class="msg-content p-3 shadow-sm" style="max-width: 80%;">
+                    👋 <strong>Xin chào anh/chị!</strong> Em là chuyên viên tư vấn AI của eShop.<br>
+                    Em có thể hỗ trợ anh/chị tra cứu các dòng điện thoại, laptop, tai nghe, màn hình hoặc so sánh cấu hình theo tầm giá.<br>
+                    Anh/chị đang quan tâm đến sản phẩm nào ạ?
+                </div>
+            </div>
+
+            <div class="quick-prompts my-2">
+                <small class="text-muted d-block mb-1">💡 Các câu hỏi bạn có thể thử:</small>
+                <button class="btn btn-sm btn-outline-primary mb-1 me-1" onclick="sendQuickPrompt(this)">Tư vấn điện thoại chụp ảnh đẹp tầm 20 triệu</button>
+                <button class="btn btn-sm btn-outline-primary mb-1 me-1" onclick="sendQuickPrompt(this)">Laptop văn phòng mỏng nhẹ pin trâu</button>
+                <button class="btn btn-sm btn-outline-primary mb-1 me-1" onclick="sendQuickPrompt(this)">Tai nghe chống ồn dưới 2 triệu</button>
+                <button class="btn btn-sm btn-outline-primary mb-1 me-1" onclick="sendQuickPrompt(this)">Có củ sạc nhanh cho iPhone không?</button>
+            </div>
+        </div>
+
+        <!-- Input Footer -->
+        <div class="p-3 bg-white border-top">
+            <form id="aiChatForm" onsubmit="handleChatSubmit(event)" class="d-flex gap-2">
+                <input type="text" id="aiChatInput" class="form-control"
+                       placeholder="Nhập câu hỏi của bạn (vd: 'Tìm laptop sinh viên core i5 dưới 15 triệu')..."
+                       autocomplete="off" autofocus>
+                <button type="submit" class="btn btn-primary px-4 fw-semibold">
+                    <i class="bi bi-send-fill me-1"></i> Gửi
+                </button>
+            </form>
+        </div>
+    </div>
+</main>
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+</body>
+</html>
